@@ -178,39 +178,69 @@ function walkPackageJson(dir, callback) {
     }
   }
 }
+// export function resolveTemplatePaths(root, patterns) {
+//   const result = [];
+//   for (const pattern of patterns) {
+//     const normalized = pattern
+//       .replaceAll("\\", "/")
+//       .replace(/^\/+/, "");
+//     const parts = normalized.split("/");
+//     const starIndex = parts.indexOf("*");
+//     // No wildcard
+//     if (starIndex === -1) {
+//       const dir = path.join(root, "packages", ...parts);
+//       if(fs.existsSync(dir) && fs.statSync(dir).isDirectory()) result.push(dir);
+//       continue;
+//     }
+//     // Wildcard
+//     const base = path.join(root, "packages", ...parts.slice(0, starIndex));
+//     if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) continue;
+//     for (const entry of fs.readdirSync(
+//       base,
+//       {
+//         withFileTypes: true,
+//       }
+//     )) {
+//       if (!entry.isDirectory()) continue;
+//       if (IGNORED_DIRECTORIES.has(entry.name)) continue;
+//       result.push(
+//         path.join(base, entry.name)
+//       );
+//     }
+//   }
+//   return result;
+// }
 export function resolveTemplatePaths(root, patterns) {
-  const result = [];
-  for (const pattern of patterns) {
-    const normalized = pattern
-      .replaceAll("\\", "/")
-      .replace(/^\/+/, "");
-    const parts = normalized.split("/");
-    const starIndex = parts.indexOf("*");
-    // No wildcard
-    if (starIndex === -1) {
-      const dir = path.join(root, "packages", ...parts);
-      if(fs.existsSync(dir) && fs.statSync(dir).isDirectory()) result.push(dir);
-      continue;
-    }
-    // Wildcard
-    const base = path.join(root, "packages", ...parts.slice(0, starIndex));
-    if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) continue;
-    for (const entry of fs.readdirSync(
-      base,
-      {
-        withFileTypes: true,
-      }
-    )) {
-      if (!entry.isDirectory()) continue;
-      if (IGNORED_DIRECTORIES.has(entry.name)) continue;
-      result.push(
-        path.join(base, entry.name)
-      );
-    }
-  }
-  return result;
-}
+  const result = new Set();
 
+  function scan(base, parts) {
+    if (!fs.existsSync(base)) return;
+
+    if (!parts.length) {
+      if (fs.statSync(base).isDirectory()) result.add(base);
+      return;
+    }
+
+    const [part, ...remaining] = parts;
+
+    if (part === "*") {
+      for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+        if (!entry.isDirectory() || IGNORED_DIRECTORIES.has(entry.name)) continue;
+        scan(path.join(base, entry.name), remaining);
+      }
+      return;
+    }
+
+    scan(path.join(base, part), remaining);
+  }
+
+  for (const pattern of patterns) {
+    const normalized = pattern.replaceAll("\\", "/").replace(/^\/+/, "");
+    scan(root, normalized.split("/").filter(Boolean));
+  }
+
+  return [...result];
+}
 function preparePackage(packageFile, resolver, root) {
   const pkg = JSON.parse(
     fs.readFileSync(packageFile, "utf8")
