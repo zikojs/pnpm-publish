@@ -40,7 +40,7 @@ export async function release({
     //   throw new Error(`Invalid version: ${version}`);
     // }
 
-    const version = '0.0.7'
+    const version = '0.0.7.1'
 
     const tag = `${prefix}${version}`;
 
