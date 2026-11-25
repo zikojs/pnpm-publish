@@ -36,7 +36,7 @@ inputs:
   pnpm-version:
     description: "Fallback pnpm version when packageManager is not defined"
     required: false
-    default: "10"
+    default: "12"
 
   npm-token:
     description: "npm auth token (omit if using trusted publishing)"

@@ -1,4 +1,4 @@
-name: Publish workflow packages
+name: Publish Scafy packages
 
 on:
   workflow_dispatch:
@@ -11,13 +11,13 @@ on:
         options: [latest, next, beta]
   push:
     tags:
-      - "workflow-v*"
+      - "scafy-v*"
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-workflow
+  group: publish-ziko
   cancel-in-progress: false
 
 jobs:
@@ -30,9 +30,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: zikojs/workflow@v1.2.0
+      - uses: zikojs/workflow@v2.2
         with:
-          tag-prefix: workflow-v
+          tag-prefix: scafy-v
           dist-tag: ${{ inputs.tag }}   # empty on tag push, so auto-detected
           npm-token: ${{ secrets.NPM_TOKEN }}
           sync-templates: true
+          template-patterns: "create-ziko/templates/*"
+          fail-on-build-error: false

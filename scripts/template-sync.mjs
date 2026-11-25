@@ -1,4 +1,3 @@
-
 import { createTemplateSync } from "../packages/workflow/src/pnpm-sync-templates/index.js";
 
 const [operation] = process.argv.slice(2);
