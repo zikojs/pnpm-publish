@@ -1,5 +1,6 @@
+
 name: Publish npm packages
-description: Build and publish pnpm workspace packages to npm with a dist-tag derived from the git tag or an explicit input.
+description: Build and publish pnpm workspace packages to npm with automatic dist-tag detection and optional template synchronization.
 
 inputs:
   tag-prefix:
@@ -55,7 +56,17 @@ inputs:
   fail-on-build-error:
     description: "Fail if the build step fails"
     required: false
+    default: "true"
+
+  sync-templates:
+    description: "Temporarily replace workspace/catalog dependencies with npm versions"
+    required: false
     default: "false"
+
+  template-patterns:
+    description: "Template directories relative to the repository root"
+    required: false
+    default: "scafy/templates/*"
 
 outputs:
   dist-tag:
@@ -77,6 +88,14 @@ runs:
         node-version: ${{ inputs.node-version }}
         cache: pnpm
         registry-url: https://registry.npmjs.org
+
+    - name: Prepare templates
+      id: sync_prepare
+      if: ${{ inputs.sync-templates == 'true' }}
+      shell: bash
+      env:
+        TEMPLATE_PATTERNS: ${{ inputs.template-patterns }}
+      run: node "$GITHUB_ACTION_PATH/scripts/template-sync.mjs" prepare
 
     - name: Install dependencies
       shell: bash
@@ -165,3 +184,10 @@ runs:
         fi
 
         pnpm publish "${ARGS[@]}"
+
+    - name: Restore templates
+      if: ${{ always() && inputs.sync-templates == 'true' && steps.sync_prepare.outcome == 'success' }}
+      shell: bash
+      env:
+        TEMPLATE_PATTERNS: ${{ inputs.template-patterns }}
+      run: node "$GITHUB_ACTION_PATH/scripts/template-sync.mjs" restore
