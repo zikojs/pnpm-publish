@@ -34,7 +34,7 @@ inputs:
     default: "24"
 
   pnpm-version:
-    description: "pnpm version to install"
+    description: "Fallback pnpm version when packageManager is not defined"
     required: false
     default: "10"
 
@@ -76,10 +76,33 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Detect pnpm version
+      id: pnpm
+      shell: bash
+      env:
+        FALLBACK_VERSION: ${{ inputs.pnpm-version }}
+      run: |
+        set -euo pipefail
+
+        VERSION=$(node --input-type=commonjs -e "
+          const pkg = require('./package.json');
+          const manager = pkg.packageManager || '';
+          const match = manager.match(/^pnpm@(.+)$/);
+          console.log(match ? match[1] : process.env.FALLBACK_VERSION);
+        ")
+
+        if [[ -z "$VERSION" ]]; then
+          echo "::error::Could not determine pnpm version"
+          exit 1
+        fi
+
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "Using pnpm $VERSION"
+
     - name: Setup pnpm
       uses: pnpm/action-setup@v6
       with:
-        # version: ${{ inputs.pnpm-version }}
+        version: ${{ steps.pnpm.outputs.version }}
         run_install: false
 
     - name: Setup Node.js
@@ -96,6 +119,11 @@ runs:
       env:
         TEMPLATE_PATTERNS: ${{ inputs.template-patterns }}
       run: node "$GITHUB_ACTION_PATH/scripts/template-sync.mjs" prepare
+
+    - name: Update lockfile
+      if: ${{ inputs.sync-templates == 'true' }}
+      shell: bash
+      run: pnpm install --lockfile-only --no-frozen-lockfile
 
     - name: Install dependencies
       shell: bash
