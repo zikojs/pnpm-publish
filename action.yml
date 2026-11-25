@@ -7,7 +7,7 @@ branding:
 
 inputs:
   tag-prefix:
-    description: "Git tag prefix to strip to get the version (e.g. console-v)"
+    description: "Git tag prefix to strip to get the version (e.g. ziko-v)"
     required: false
     default: "v"
 
@@ -30,11 +30,6 @@ inputs:
     description: "pnpm --filter expression used for the build step"
     required: false
     default: "./packages/**"
-
-  node-version:
-    description: "Node.js version"
-    required: false
-    default: "24"
 
   pnpm-version:
     description: "Fallback pnpm version when packageManager is not defined"
@@ -111,7 +106,7 @@ runs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ inputs.node-version }}
+        node-version: 24
         cache: pnpm
         registry-url: https://registry.npmjs.org
 
