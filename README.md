@@ -66,7 +66,6 @@ For npm trusted publishing, configure your npm package's trusted publisher and o
 | `default-dist-tag` | Fallback dist-tag when no tag is available | `latest` |
 | `packages-dir` | Directory containing packages to publish | `packages` |
 | `build-filter` | pnpm filter expression used for builds | `./packages/**` |
-| `node-version` | Node.js version | `24` |
 | `pnpm-version` | Fallback pnpm version if `packageManager` is absent | `12` |
 | `npm-token` | npm authentication token | `""` |
 | `access` | npm access level (`public` or `restricted`) | `""` |
@@ -194,7 +193,6 @@ Omit `npm-token` when using trusted publishing.
 - A root `package.json`.
 - A valid `pnpm-lock.yaml`.
 - Packages with valid npm publishing metadata.
-- Node.js and pnpm versions compatible with your project.
 
 The action uses `packageManager` from the root `package.json` when available. Otherwise, it uses the configured `pnpm-version`.
 
