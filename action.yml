@@ -6,38 +6,52 @@ inputs:
     description: "Git tag prefix to strip to get the version (e.g. console-v)"
     required: false
     default: "v"
+
   dist-tag:
-    description: "Explicit npm dist-tag. If empty, derived from the git tag (prerelease id such as beta/next/rc, otherwise latest)"
+    description: "Explicit npm dist-tag. If empty, derived from the git tag."
     required: false
     default: ""
+
   default-dist-tag:
     description: "Fallback dist-tag when not on a tag push and dist-tag is empty"
     required: false
-    default: latest
+    default: "latest"
+
   packages-dir:
     description: "Directory containing the packages to publish"
     required: false
-    default: packages
+    default: "packages"
+
   build-filter:
     description: "pnpm --filter expression used for the build step"
     required: false
     default: "./packages/**"
+
   node-version:
     description: "Node.js version"
     required: false
     default: "24"
+
+  pnpm-version:
+    description: "pnpm version to install"
+    required: false
+    default: "10"
+
   npm-token:
     description: "npm auth token (omit if using trusted publishing)"
     required: false
     default: ""
+
   access:
     description: "npm access level (public/restricted). Empty = package default"
     required: false
     default: ""
+
   dry-run-only:
     description: "Only run the dry-run preview, do not publish"
     required: false
     default: "false"
+
   fail-on-build-error:
     description: "Fail if the build step fails"
     required: false
@@ -53,6 +67,9 @@ runs:
   steps:
     - name: Setup pnpm
       uses: pnpm/action-setup@v6
+      with:
+        version: ${{ inputs.pnpm-version }}
+        run_install: false
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
@@ -79,17 +96,28 @@ runs:
 
         if [[ -n "$INPUT_TAG" ]]; then
           TAG="$INPUT_TAG"
+
         elif [[ "$REF_TYPE" == "tag" ]]; then
           VERSION="${REF_NAME#"$TAG_PREFIX"}"
+
           if [[ "$VERSION" == *-* ]]; then
-            PRE="${VERSION#*-}"      # 1.2.0-beta.1 -> beta.1
-            TAG="${PRE%%.*}"         # beta.1 -> beta
-            [[ "$TAG" =~ ^[A-Za-z][A-Za-z0-9-]*$ ]] || TAG="beta"
+            PRE="${VERSION#*-}"
+            TAG="${PRE%%.*}"
+
+            if [[ ! "$TAG" =~ ^[A-Za-z][A-Za-z0-9-]*$ ]]; then
+              TAG="beta"
+            fi
           else
             TAG="latest"
           fi
+
         else
           TAG="$DEFAULT_TAG"
+        fi
+
+        if [[ ! "$TAG" =~ ^[A-Za-z][A-Za-z0-9._-]*$ ]]; then
+          echo "::error::Invalid npm dist-tag: $TAG"
+          exit 1
         fi
 
         echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -101,13 +129,17 @@ runs:
         FILTER: ${{ inputs.build-filter }}
         FAIL: ${{ inputs.fail-on-build-error }}
       run: |
+        set -euo pipefail
+
         if pnpm --filter "$FILTER" -r --if-present run build; then
           exit 0
         fi
+
         if [[ "$FAIL" == "true" ]]; then
           echo "::error::Build failed"
           exit 1
         fi
+
         echo "::warning::Build failed, continuing"
 
     - name: Preview packages
@@ -124,6 +156,12 @@ runs:
         NPM_DIST_TAG: ${{ steps.release.outputs.tag }}
         NPM_ACCESS: ${{ inputs.access }}
       run: |
+        set -euo pipefail
+
         ARGS=(-r --tag "$NPM_DIST_TAG" --no-git-checks)
-        if [[ -n "$NPM_ACCESS" ]]; then ARGS+=(--access "$NPM_ACCESS"); fi
+
+        if [[ -n "$NPM_ACCESS" ]]; then
+          ARGS+=(--access "$NPM_ACCESS")
+        fi
+
         pnpm publish "${ARGS[@]}"
