@@ -40,8 +40,6 @@ export async function release({
       throw new Error(`Invalid version: ${version}`);
     }
 
-    // const version = '0.0.7.2'
-
     const tag = `${prefix}${version}`;
 
     if (git("status", "--porcelain")) {
