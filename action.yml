@@ -67,6 +67,26 @@ inputs:
     required: false
     default: "packages/*/templates/*"
 
+  template-sync-mode:
+    description: "Template synchronization mode: unchecked or wait"
+    required: false
+    default: "unchecked"
+
+  dependency-filter:
+    description: "pnpm filter selecting packages to publish before template synchronization in wait mode"
+    required: false
+    default: ""
+
+  publish-timeout:
+    description: "Maximum seconds to wait for package versions to appear on npm"
+    required: false
+    default: "300"
+
+  publish-interval:
+    description: "Seconds between npm publication checks"
+    required: false
+    default: "10"
+
 outputs:
   dist-tag:
     description: "The npm dist-tag that was used"
@@ -110,6 +130,25 @@ runs:
         node-version: 24
         cache: pnpm
         registry-url: https://registry.npmjs.org
+
+    - name: Validate template sync configuration
+      if: ${{ inputs.sync-templates == 'true' }}
+      shell: bash
+      env:
+        MODE: ${{ inputs.template-sync-mode }}
+        DEPENDENCY_FILTER: ${{ inputs.dependency-filter }}
+      run: |
+        set -euo pipefail
+
+        if [[ "$MODE" != "unchecked" && "$MODE" != "wait" ]]; then
+          echo "::error::template-sync-mode must be 'unchecked' or 'wait'"
+          exit 1
+        fi
+
+        if [[ "$MODE" == "wait" && -z "$DEPENDENCY_FILTER" ]]; then
+          echo "::error::dependency-filter is required when template-sync-mode is 'wait'"
+          exit 1
+        fi
 
     - name: Install dependencies
       shell: bash
@@ -175,6 +214,107 @@ runs:
 
         echo "::warning::Build failed, continuing"
 
+    # In wait mode, publish selected dependencies before preparing templates.
+    - name: Publish template dependencies
+      if: ${{ inputs.sync-templates == 'true' && inputs.template-sync-mode == 'wait' && inputs.dry-run-only != 'true' }}
+      shell: bash
+      env:
+        DEPENDENCY_FILTER: ${{ inputs.dependency-filter }}
+        NPM_DIST_TAG: ${{ steps.release.outputs.tag }}
+        NPM_ACCESS: ${{ inputs.access }}
+        NODE_AUTH_TOKEN: ${{ inputs.npm-token }}
+      run: |
+        set -euo pipefail
+
+        ARGS=(-r --tag "$NPM_DIST_TAG" --no-git-checks)
+
+        if [[ -n "$NPM_ACCESS" ]]; then
+          ARGS+=(--access "$NPM_ACCESS")
+        fi
+
+        echo "Publishing dependency packages selected by: $DEPENDENCY_FILTER"
+
+        pnpm --filter "$DEPENDENCY_FILTER" publish "${ARGS[@]}"
+
+    - name: Wait for template dependencies
+      if: ${{ inputs.sync-templates == 'true' && inputs.template-sync-mode == 'wait' && inputs.dry-run-only != 'true' }}
+      shell: bash
+      env:
+        DEPENDENCY_FILTER: ${{ inputs.dependency-filter }}
+        PUBLISH_TIMEOUT: ${{ inputs.publish-timeout }}
+        PUBLISH_INTERVAL: ${{ inputs.publish-interval }}
+      run: |
+        set -euo pipefail
+
+        node <<'NODE'
+        const { execFileSync } = require('node:child_process');
+
+        const filter = process.env.DEPENDENCY_FILTER;
+        const timeout = Number(process.env.PUBLISH_TIMEOUT);
+        const interval = Number(process.env.PUBLISH_INTERVAL);
+
+        if (!Number.isFinite(timeout) || timeout <= 0 ||
+            !Number.isFinite(interval) || interval <= 0) {
+          throw new Error('publish-timeout and publish-interval must be positive numbers');
+        }
+
+        const output = execFileSync(
+          'pnpm',
+          ['--filter', filter, 'list', '--depth', '-1', '--json'],
+          { encoding: 'utf8' }
+        );
+
+        const packages = JSON.parse(output);
+
+        if (!Array.isArray(packages) || packages.length === 0) {
+          throw new Error(`No packages matched dependency-filter: ${filter}`);
+        }
+
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        async function waitForPackage(name, version) {
+          const spec = `${name}@${version}`;
+          const start = Date.now();
+
+          console.log(`Waiting for ${spec} on npm...`);
+
+          while (Date.now() - start < timeout * 1000) {
+            try {
+              const published = execFileSync(
+                'npm',
+                ['view', spec, 'version', '--json'],
+                { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+              ).trim();
+
+              if (published) {
+                console.log(`Available on npm: ${spec}`);
+                return;
+              }
+            } catch {
+              // The exact version is not visible yet.
+            }
+
+            console.log(`${spec} is not available yet. Retrying in ${interval}s...`);
+            await sleep(interval * 1000);
+          }
+
+          throw new Error(`Timed out waiting for ${spec} after ${timeout}s`);
+        }
+
+        (async () => {
+          for (const pkg of packages) {
+            if (!pkg.name || !pkg.version) {
+              throw new Error(`Could not determine package name/version: ${JSON.stringify(pkg)}`);
+            }
+
+            await waitForPackage(pkg.name, pkg.version);
+          }
+        })().catch(error => {
+          console.error(error);
+          process.exitCode = 1;
+        });
+        NODE
+
     - name: Prepare templates
       id: sync_prepare
       if: ${{ inputs.sync-templates == 'true' }}
@@ -186,7 +326,17 @@ runs:
     - name: Preview packages
       shell: bash
       working-directory: ${{ inputs.packages-dir }}
-      run: pnpm publish -r --dry-run --no-git-checks
+      env:
+        MODE: ${{ inputs.template-sync-mode }}
+        DEPENDENCY_FILTER: ${{ inputs.dependency-filter }}
+      run: |
+        set -euo pipefail
+
+        if [[ "$MODE" == "wait" && -n "$DEPENDENCY_FILTER" ]]; then
+          pnpm -r --filter "!$DEPENDENCY_FILTER" publish --dry-run --no-git-checks
+        else
+          pnpm publish -r --dry-run --no-git-checks
+        fi
 
     - name: Publish packages to npm
       if: ${{ inputs.dry-run-only != 'true' }}
@@ -196,6 +346,8 @@ runs:
         NODE_AUTH_TOKEN: ${{ inputs.npm-token }}
         NPM_DIST_TAG: ${{ steps.release.outputs.tag }}
         NPM_ACCESS: ${{ inputs.access }}
+        MODE: ${{ inputs.template-sync-mode }}
+        DEPENDENCY_FILTER: ${{ inputs.dependency-filter }}
       run: |
         set -euo pipefail
 
@@ -205,7 +357,11 @@ runs:
           ARGS+=(--access "$NPM_ACCESS")
         fi
 
-        pnpm publish "${ARGS[@]}"
+        if [[ "$MODE" == "wait" && -n "$DEPENDENCY_FILTER" ]]; then
+          pnpm --filter "!$DEPENDENCY_FILTER" publish "${ARGS[@]}"
+        else
+          pnpm publish "${ARGS[@]}"
+        fi
 
     - name: Restore templates
       if: ${{ always() && inputs.sync-templates == 'true' && steps.sync_prepare.outcome == 'success' }}
