@@ -19,7 +19,7 @@ export async function release({
     throw new Error("Release name is required.");
   }
 
-  const sync = createTemplateSync(SCAFFOLDERS);
+  const sync = createTemplateSync('',SCAFFOLDERS);
   const rl = createInterface({ input: stdin, output: stdout });
 
   function git(...args) {
