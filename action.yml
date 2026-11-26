@@ -1,9 +1,10 @@
 name: 'PNPM Workspace Sync & Release'
 description: Build and publish pnpm workspace packages to npm with automatic dist-tag detection and optional template synchronization.
+author: 'zikojs'
 
 branding:
   icon: package
-  color: orange
+  color: purple
 
 inputs:
   tag-prefix:
